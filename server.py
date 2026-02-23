@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 import os
+import re
 
 app = Flask(__name__)
 
@@ -7,18 +8,35 @@ app = Flask(__name__)
 # Key: UserID, Value: OTP
 otp_store = {}
 
+def extract_otp(text):
+    """SMS text se 4-8 digit OTP extract karta hai."""
+    # Pehle 6-digit numbers dhundho (most common OTP length)
+    matches = re.findall(r'\b(\d{6})\b', text)
+    if matches:
+        return matches[0]
+    # 4 ya 8 digit bhi try karo
+    matches = re.findall(r'\b(\d{4,8})\b', text)
+    if matches:
+        return matches[0]
+    # Kuch nahi mila - content as-is return karo
+    return text.strip()
+
 @app.route('/sms', methods=['POST'])
 def receive_sms():
     data = request.json
     user_id = data.get('id')
     sender = data.get('sender')
-    content = data.get('content') # This is the OTP
+    content = data.get('content')
 
     if not user_id or not content:
         return "Missing data", 400
 
-    print(f"[*] Received OTP for {user_id}: {content}")
-    otp_store[user_id] = content
+    # SMS text se sirf OTP digits extract karo
+    otp = extract_otp(content)
+    print(f"[*] Received SMS for {user_id} from {sender}")
+    print(f"[*] Full SMS: {content}")
+    print(f"[*] Extracted OTP: {otp}")
+    otp_store[user_id] = otp
     return "OK", 200
 
 @app.route('/get-otp/<user_id>', methods=['GET'])
