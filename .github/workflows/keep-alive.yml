@@ -1,0 +1,12 @@
+name: Keep Server Alive
+
+on:
+  schedule:
+    - cron: '*/14 * * * *'  # Har 14 minute pe run hoga
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping Render Server
+        run: curl -s https://sms-otp-server.onrender.com/status
