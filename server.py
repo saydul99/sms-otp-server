@@ -49,6 +49,23 @@ def get_otp(user_id):
         return jsonify({"status": "success", "otp": otp})
     return jsonify({"status": "pending", "otp": None}), 404
 
+@app.route('/check-otp/<user_id>', methods=['GET'])
+def check_otp(user_id):
+    # Sirf dekhne ke liye - OTP DELETE NAHI HOGA
+    otp = otp_store.get(user_id)
+    if otp:
+        return jsonify({"status": "received", "otp": otp, "note": "OTP server pe hai - DELETE nahi hua"})
+    return jsonify({"status": "empty", "otp": None, "note": "Abhi koi OTP nahi aaya"}), 404
+
+@app.route('/status', methods=['GET'])
+def status():
+    # Server status + kitne OTPs stored hain
+    return jsonify({
+        "server": "running",
+        "stored_otps": list(otp_store.keys()),
+        "total": len(otp_store)
+    })
+
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
     app.run(host='0.0.0.0', port=port)
