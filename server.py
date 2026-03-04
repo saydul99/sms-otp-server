@@ -57,6 +57,12 @@ def check_otp(user_id):
         return jsonify({"status": "received", "otp": otp, "note": "OTP server pe hai - DELETE nahi hua"})
     return jsonify({"status": "empty", "otp": None, "note": "Abhi koi OTP nahi aaya"}), 404
 
+@app.route('/clear-all', methods=['DELETE'])
+def clear_all():
+    count = len(otp_store)
+    otp_store.clear()
+    return jsonify({"status": "cleared", "deleted": count})
+
 @app.route('/status', methods=['GET'])
 def status():
     # Server status + kitne OTPs stored hain
