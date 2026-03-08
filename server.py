@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 import os
 import re
 import threading
+import time
 import urllib.request
 
 app = Flask(__name__)
@@ -9,7 +10,6 @@ app = Flask(__name__)
 # Self-ping to prevent Render free tier sleep
 def keep_alive():
     """Har 10 min pe khud ko ping karo taaki Render so na jaye."""
-    import time
     url = os.environ.get("RENDER_EXTERNAL_URL", "https://sms-otp-server.onrender.com")
     while True:
         time.sleep(600)  # 10 minutes
@@ -23,6 +23,14 @@ threading.Thread(target=keep_alive, daemon=True).start()
 # Temporary storage for OTPs in memory
 # Key: UserID, Value: OTP
 otp_store = {}
+
+# ══════════════════════════════════════════════════════════════════════════════
+# IRCTC TOKEN STORE — APP Mode token relay
+# Phone (patched IRCTC app) → POST /irctc-token → store
+# Desktop (Little-Boy) → GET /get-irctc-tokens/<user_id> → consume + delete
+# ══════════════════════════════════════════════════════════════════════════════
+irctc_token_store = {}  # { user_id: [ {step, csrf, jwt, cookies, greq, bmiyek, ...}, ... ] }
+irctc_lock = threading.Lock()
 
 def extract_otp(text):
     """SMS text se 4-8 digit OTP extract karta hai."""
@@ -79,13 +87,97 @@ def clear_all():
     otp_store.clear()
     return jsonify({"status": "cleared", "deleted": count})
 
+@app.route('/irctc-token', methods=['POST'])
+def receive_irctc_token():
+    """Phone ka patched IRCTC app yahan token bhejta hai."""
+    try:
+        data = request.get_json(force=True) or {}
+        user_id = data.get('user_id', 'default')
+
+        entry = {
+            "step":          data.get("step", "UNKNOWN"),
+            "sequence":      int(data.get("sequence", 0)),
+            "url":           data.get("url", ""),
+            "http_code":     data.get("http_code", 0),
+            "access_token":  data.get("access_token", ""),
+            "csrf_token":    data.get("csrf_token", ""),
+            "cookies":       data.get("cookies", ""),
+            "greq":          data.get("greq", ""),
+            "bmiyek":        data.get("bmiyek", ""),
+            "response_body": data.get("response_body", "")[:3000],
+            "received_at":   time.time(),
+        }
+
+        with irctc_lock:
+            if user_id not in irctc_token_store:
+                irctc_token_store[user_id] = []
+            irctc_token_store[user_id].append(entry)
+            count = len(irctc_token_store[user_id])
+
+        print(f"[IRCTC-TOKEN] {user_id}: step={entry['step']} seq={entry['sequence']} total={count}")
+        return jsonify({"status": "ok", "total": count}), 200
+
+    except Exception as e:
+        print(f"[IRCTC-TOKEN] receive error: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+
+@app.route('/get-irctc-tokens/<user_id>', methods=['GET'])
+def get_irctc_tokens(user_id):
+    """Desktop consume karta hai — tokens return + DELETE."""
+    with irctc_lock:
+        tokens = irctc_token_store.pop(user_id, [])
+
+    tokens.sort(key=lambda t: t.get("sequence", 0))
+
+    # Latest values extract karo (last non-empty wins)
+    latest = {"access_token": "", "csrf_token": "", "cookies": "", "greq": "", "bmiyek": ""}
+    for t in tokens:
+        for field in latest:
+            if t.get(field):
+                latest[field] = t[field]
+
+    print(f"[IRCTC-TOKEN] {user_id}: consumed {len(tokens)} tokens → desktop")
+    return jsonify({"tokens": tokens, "count": len(tokens), "latest": latest}), 200
+
+
+@app.route('/check-irctc-tokens/<user_id>', methods=['GET'])
+def check_irctc_tokens(user_id):
+    """Count check — DELETE nahi hota."""
+    with irctc_lock:
+        tokens = irctc_token_store.get(user_id, [])
+        count  = len(tokens)
+        steps  = [t.get("step") for t in tokens]
+        has_jwt  = any(t.get("access_token") for t in tokens)
+        has_csrf = any(t.get("csrf_token")   for t in tokens)
+
+    return jsonify({
+        "count":           count,
+        "steps":           steps,
+        "has_login_token": has_jwt,
+        "has_csrf":        has_csrf,
+        "ready":           count >= 4 and has_jwt,
+    }), 200
+
+
+@app.route('/clear-irctc-tokens/<user_id>', methods=['POST'])
+def clear_irctc_tokens(user_id):
+    """Testing ke liye tokens clear karo."""
+    with irctc_lock:
+        cleared = len(irctc_token_store.pop(user_id, []))
+    return jsonify({"status": "ok", "cleared": cleared}), 200
+
+
 @app.route('/status', methods=['GET'])
 def status():
     # Server status + kitne OTPs stored hain
+    with irctc_lock:
+        token_counts = {uid: len(t) for uid, t in irctc_token_store.items()}
     return jsonify({
         "server": "running",
         "stored_otps": list(otp_store.keys()),
-        "total": len(otp_store)
+        "total_otps": len(otp_store),
+        "irctc_tokens": token_counts,
     })
 
 if __name__ == '__main__':
