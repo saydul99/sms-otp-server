@@ -3,22 +3,8 @@ import os
 import re
 import threading
 import time
-import urllib.request
 
 app = Flask(__name__)
-
-# Self-ping to prevent Render free tier sleep
-def keep_alive():
-    """Har 10 min pe khud ko ping karo taaki Render so na jaye."""
-    url = os.environ.get("RENDER_EXTERNAL_URL", "https://sms-otp-server.onrender.com")
-    while True:
-        time.sleep(600)  # 10 minutes
-        try:
-            urllib.request.urlopen(f"{url}/status", timeout=10)
-        except Exception:
-            pass
-
-threading.Thread(target=keep_alive, daemon=True).start()
 
 # Temporary storage for OTPs in memory
 # Key: UserID, Value: OTP
