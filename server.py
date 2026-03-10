@@ -1,10 +1,12 @@
 from flask import Flask, request, jsonify
+from flask_cors import CORS
 import os
 import re
 import threading
 import time
 
 app = Flask(__name__)
+CORS(app, resources={r"/check-otp/*": {"origins": "*"}})
 
 # Temporary storage for OTPs in memory
 # Key: UserID, Value: OTP
