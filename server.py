@@ -1,6 +1,7 @@
 from flask import Flask, request, jsonify
 import os
 import re
+import time
 import threading
 import urllib.request
 
@@ -78,6 +79,103 @@ def clear_all():
     count = len(otp_store)
     otp_store.clear()
     return jsonify({"status": "cleared", "deleted": count})
+
+# ──────────────────────────────────────────────
+# IRCTC Token Relay — Phone → Desktop
+# ──────────────────────────────────────────────
+_token_store = {}
+_token_lock = threading.Lock()
+
+@app.route('/irctc-token', methods=['POST'])
+def receive_irctc_token():
+    """Phone (modified IRCTC app) se token receive karo."""
+    try:
+        data = request.get_json(force=True) or {}
+        user_id = data.get('user_id', 'default')
+
+        token_entry = {
+            "step":          data.get("step", "UNKNOWN"),
+            "sequence":      int(data.get("sequence", 0)),
+            "url":           data.get("url", ""),
+            "http_code":     data.get("http_code", 0),
+            "access_token":  data.get("access_token", ""),
+            "csrf_token":    data.get("csrf_token", ""),
+            "cookies":       data.get("cookies", ""),
+            "greq":          data.get("greq", ""),
+            "bmiyek":        data.get("bmiyek", ""),
+            "response_body": data.get("response_body", ""),
+            "captured_at":   data.get("captured_at", 0),
+            "received_at":   time.time(),
+        }
+
+        with _token_lock:
+            if user_id not in _token_store:
+                _token_store[user_id] = []
+            _token_store[user_id].append(token_entry)
+            count = len(_token_store[user_id])
+
+        print(f"[TOKEN] {user_id}: step={token_entry['step']} seq={token_entry['sequence']} total={count}")
+        return jsonify({"status": "ok", "total": count}), 200
+
+    except Exception as e:
+        print(f"[TOKEN] receive error: {e}")
+        return jsonify({"status": "error", "error": str(e)}), 500
+
+@app.route('/get-irctc-tokens/<user_id>', methods=['GET'])
+def get_irctc_tokens(user_id):
+    """Desktop consume tokens (deletes after read)."""
+    with _token_lock:
+        tokens = _token_store.pop(user_id, [])
+
+    tokens.sort(key=lambda t: t.get("sequence", 0))
+
+    latest_access_token = ""
+    latest_csrf = ""
+    latest_cookies = ""
+    latest_greq = ""
+    latest_bmiyek = ""
+
+    for t in tokens:
+        if t.get("access_token"):
+            latest_access_token = t["access_token"]
+        if t.get("csrf_token"):
+            latest_csrf = t["csrf_token"]
+        if t.get("cookies"):
+            latest_cookies = t["cookies"]
+        if t.get("greq"):
+            latest_greq = t["greq"]
+        if t.get("bmiyek"):
+            latest_bmiyek = t["bmiyek"]
+
+    return jsonify({
+        "tokens": tokens,
+        "count": len(tokens),
+        "latest": {
+            "access_token": latest_access_token,
+            "csrf_token": latest_csrf,
+            "cookies": latest_cookies,
+            "greq": latest_greq,
+            "bmiyek": latest_bmiyek,
+        }
+    }), 200
+
+@app.route('/check-irctc-tokens/<user_id>', methods=['GET'])
+def check_irctc_tokens(user_id):
+    """Check token count WITHOUT deleting."""
+    with _token_lock:
+        tokens = _token_store.get(user_id, [])
+        count = len(tokens)
+        steps = [t.get("step") for t in tokens]
+        has_login = any(s == "LOGIN" for s in steps)
+        has_csrf = any(t.get("csrf_token") for t in tokens)
+
+    return jsonify({
+        "count": count,
+        "steps": steps,
+        "has_login_token": has_login,
+        "has_csrf": has_csrf,
+        "ready": count >= 4,
+    }), 200
 
 @app.route('/status', methods=['GET'])
 def status():
