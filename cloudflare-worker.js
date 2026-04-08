@@ -4,34 +4,25 @@ export default {
     const path = url.pathname;
     const corsHeaders = {
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Content-Type',
     };
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
     }
+
+    // Each routeId gets its own KV key — no race condition
     const saveOTP = async (userId, otp) => {
-      const data = await env.OTP_STORE.get('data');
-      const store = data ? JSON.parse(data) : {};
-      store[userId] = { otp, timestamp: Date.now() };
-      await env.OTP_STORE.put('data', JSON.stringify(store));
+      await env.OTP_STORE.put(`otp:${userId}`, JSON.stringify({ otp, timestamp: Date.now() }));
     };
     const getOTP = async (userId) => {
-      const data = await env.OTP_STORE.get('data');
-      if (data) {
-        const store = JSON.parse(data);
-        return store[userId] || null;
-      }
-      return null;
+      const data = await env.OTP_STORE.get(`otp:${userId}`);
+      return data ? JSON.parse(data) : null;
     };
     const deleteOTP = async (userId) => {
-      const data = await env.OTP_STORE.get('data');
-      if (data) {
-        const store = JSON.parse(data);
-        delete store[userId];
-        await env.OTP_STORE.put('data', JSON.stringify(store));
-      }
+      await env.OTP_STORE.delete(`otp:${userId}`);
     };
+
     if (path === '/sms' && request.method === 'POST') {
       try {
         const body = await request.json();
@@ -56,6 +47,7 @@ export default {
         });
       }
     }
+
     if (path.startsWith('/check-otp/') && request.method === 'GET') {
       const userId = path.split('/check-otp/')[1];
       const data = await getOTP(userId);
@@ -72,6 +64,7 @@ export default {
         note: 'Abhi koi OTP nahi aaya'
       }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
     }
+
     if (path.startsWith('/get-otp/') && request.method === 'GET') {
       const userId = path.split('/get-otp/')[1];
       const data = await getOTP(userId);
@@ -87,25 +80,45 @@ export default {
         otp: null
       }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
     }
+
     if (path === '/clear-all' && request.method === 'DELETE') {
-      const data = await env.OTP_STORE.get('data');
-      const store = data ? JSON.parse(data) : {};
-      const deleted = Object.keys(store).length;
-      await env.OTP_STORE.put('data', JSON.stringify({}));
-      return new Response(JSON.stringify({ status: 'ok', deleted: deleted }), {
+      const PAIR_IDS = ['P1', 'P2', 'P3', 'P4'];
+      const USER_IDS = ['haque_1'];
+      let deleted = 0;
+      for (const user of USER_IDS) {
+        for (const pair of PAIR_IDS) {
+          const key = `otp:${user}_${pair}`;
+          const existing = await env.OTP_STORE.get(key);
+          if (existing) {
+            await env.OTP_STORE.delete(key);
+            deleted++;
+          }
+        }
+      }
+      return new Response(JSON.stringify({ status: 'ok', deleted }), {
         headers: { 'Content-Type': 'application/json', ...corsHeaders }
       });
     }
+
     if (path === '/status' && request.method === 'GET') {
-      const data = await env.OTP_STORE.get('data');
-      const store = data ? JSON.parse(data) : {};
+      const PAIR_IDS = ['P1', 'P2', 'P3', 'P4'];
+      const USER_IDS = ['haque_1'];
+      const stored = [];
+      for (const user of USER_IDS) {
+        for (const pair of PAIR_IDS) {
+          const key = `otp:${user}_${pair}`;
+          const data = await env.OTP_STORE.get(key);
+          if (data) stored.push(`${user}_${pair}`);
+        }
+      }
       return new Response(JSON.stringify({
         server: 'running',
-        stored_otps: Object.keys(store),
-        total: Object.keys(store).length,
+        stored_otps: stored,
+        total: stored.length,
         worker: 'Cloudflare Workers'
       }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
     }
+
     return new Response(JSON.stringify({ error: 'Not found' }), {
       status: 404,
       headers: { 'Content-Type': 'application/json', ...corsHeaders }
