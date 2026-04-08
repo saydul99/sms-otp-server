@@ -87,6 +87,15 @@ export default {
         otp: null
       }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
     }
+    if (path === '/clear-all' && request.method === 'DELETE') {
+      const data = await env.OTP_STORE.get('data');
+      const store = data ? JSON.parse(data) : {};
+      const deleted = Object.keys(store).length;
+      await env.OTP_STORE.put('data', JSON.stringify({}));
+      return new Response(JSON.stringify({ status: 'ok', deleted: deleted }), {
+        headers: { 'Content-Type': 'application/json', ...corsHeaders }
+      });
+    }
     if (path === '/status' && request.method === 'GET') {
       const data = await env.OTP_STORE.get('data');
       const store = data ? JSON.parse(data) : {};
