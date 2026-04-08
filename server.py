@@ -3,8 +3,32 @@ import os
 import re
 import time
 import threading
+import urllib.request
 
 app = Flask(__name__)
+
+# Self-ping to prevent Render free tier sleep
+def keep_alive():
+    """IST 7 AM se 12 AM ke beech har 5 min pe ping karo."""
+    url = os.environ.get("RENDER_EXTERNAL_URL", "")
+    if not url:
+        return
+    while True:
+        time.sleep(300)  # 5 minutes
+        # IST = UTC + 5:30
+        utc_hour = time.gmtime().tm_hour
+        utc_min  = time.gmtime().tm_min
+        ist_total_min = utc_hour * 60 + utc_min + 330  # +5:30
+        ist_hour = (ist_total_min // 60) % 24
+        # Sirf 7 AM (7) se 12 AM (24) ke beech ping karo
+        if 7 <= ist_hour < 24:
+            try:
+                urllib.request.urlopen(f"{url}/status", timeout=10)
+                print(f"[keep-alive] ping sent at IST hour {ist_hour}")
+            except Exception:
+                pass
+
+threading.Thread(target=keep_alive, daemon=True).start()
 
 # Temporary storage for OTPs in memory
 # Key: UserID, Value: OTP
