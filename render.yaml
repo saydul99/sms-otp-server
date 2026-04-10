@@ -1,7 +1,0 @@
-services:
-  - type: web
-    name: sms-otp-server
-    env: node
-    region: singapore
-    buildCommand: npm install
-    startCommand: npm start

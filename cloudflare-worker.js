@@ -16,7 +16,8 @@ export default {
       await env.OTP_STORE.put(`otp:${userId}`, JSON.stringify({ otp, timestamp: Date.now() }));
     };
     const getOTP = async (userId) => {
-      const data = await env.OTP_STORE.get(`otp:${userId}`);
+      // cacheTtl=60 forces fresh read from central KV store, bypasses edge cache
+      const data = await env.OTP_STORE.get(`otp:${userId}`, { cacheTtl: 60 });
       return data ? JSON.parse(data) : null;
     };
     const deleteOTP = async (userId) => {
