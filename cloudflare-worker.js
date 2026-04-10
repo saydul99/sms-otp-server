@@ -83,7 +83,7 @@ export default {
     }
 
     if (path === '/clear-all' && request.method === 'DELETE') {
-      const PAIR_IDS = ['P1', 'P2', 'P3', 'P4'];
+      const PAIR_IDS = ['T1', 'T2', 'T3', 'T4', 'P1', 'P2', 'P3', 'P4'];
       const USER_IDS = ['haque_1'];
       let deleted = 0;
       for (const user of USER_IDS) {
@@ -116,7 +116,7 @@ export default {
     }
 
     if (path === '/status' && request.method === 'GET') {
-      const PAIR_IDS = ['P1', 'P2', 'P3', 'P4'];
+      const PAIR_IDS = ['T1', 'T2', 'T3', 'T4', 'P1', 'P2', 'P3', 'P4'];
       const USER_IDS = ['haque_1'];
       const stored = [];
       for (const user of USER_IDS) {
