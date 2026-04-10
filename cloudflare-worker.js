@@ -16,8 +16,7 @@ export default {
       await env.OTP_STORE.put(`otp:${userId}`, JSON.stringify({ otp, timestamp: Date.now() }));
     };
     const getOTP = async (userId) => {
-      // cacheTtl=60 forces fresh read from central KV store, bypasses edge cache
-      const data = await env.OTP_STORE.get(`otp:${userId}`, { cacheTtl: 60 });
+      const data = await env.OTP_STORE.get(`otp:${userId}`);
       return data ? JSON.parse(data) : null;
     };
     const deleteOTP = async (userId) => {
@@ -107,7 +106,7 @@ export default {
       const pairs = ['P1', 'P2', 'P3', 'P4'];
       const result = {};
       await Promise.all(pairs.map(async (pair) => {
-        const data = await env.OTP_STORE.get(`otp:${userId}_${pair}`, { cacheTtl: 60 });
+        const data = await env.OTP_STORE.get(`otp:${userId}_${pair}`);
         result[pair] = data ? JSON.parse(data).otp : null;
       }));
       return new Response(JSON.stringify({ status: 'ok', otps: result }), {
