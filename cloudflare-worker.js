@@ -104,7 +104,7 @@ export default {
     // Single request mein saare OTPs — polling ke liye efficient
     if (path.startsWith('/check-all/') && request.method === 'GET') {
       const userId = path.split('/check-all/')[1];
-      const pairs = ['P1', 'P2', 'P3', 'P4'];
+      const pairs = ['T1', 'T2', 'T3', 'T4', 'P1', 'P2', 'P3', 'P4'];
       const result = {};
       await Promise.all(pairs.map(async (pair) => {
         const data = await env.OTP_STORE.get(`otp:${userId}_${pair}`, { cacheTtl: 60 });
