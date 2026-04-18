@@ -49,8 +49,23 @@ export default {
     }
 
     if (path.startsWith('/check-otp/') && request.method === 'GET') {
-      const userId = path.split('/check-otp/')[1];
-      const data = await getOTP(userId);
+      const userIdFull = path.split('/check-otp/')[1];
+      let userId = userIdFull;
+      let pair = null;
+      
+      if (userIdFull.includes('_')) {
+        const parts = userIdFull.split('_');
+        userId = parts.slice(0, -1).join('_');
+        pair = parts[parts.length - 1];
+      }
+      
+      let data;
+      if (pair) {
+        data = await env.OTP_STORE.get(`otp:${userId}_${pair}`);
+      } else {
+        data = await env.OTP_STORE.get(`otp:${userIdFull}`);
+      }
+      
       if (data) {
         return new Response(JSON.stringify({
           status: 'received',
@@ -66,10 +81,25 @@ export default {
     }
 
     if (path.startsWith('/get-otp/') && request.method === 'GET') {
-      const userId = path.split('/get-otp/')[1];
-      const data = await getOTP(userId);
+      const userIdFull = path.split('/get-otp/')[1];
+      let userId = userIdFull;
+      let pair = null;
+      
+      if (userIdFull.includes('_')) {
+        const parts = userIdFull.split('_');
+        userId = parts.slice(0, -1).join('_');
+        pair = parts[parts.length - 1];
+      }
+      
+      let data;
+      if (pair) {
+        data = await env.OTP_STORE.get(`otp:${userId}_${pair}`);
+      } else {
+        data = await env.OTP_STORE.get(`otp:${userIdFull}`);
+      }
+      
       if (data) {
-        await deleteOTP(userId);
+        await deleteOTP(userIdFull);
         return new Response(JSON.stringify({
           status: 'success',
           otp: data.otp
