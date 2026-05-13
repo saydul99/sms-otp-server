@@ -3,7 +3,9 @@
     "allow": [
       "Bash(git fetch:*)",
       "Bash(git add:*)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(npx wrangler *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }

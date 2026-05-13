@@ -11,13 +11,25 @@ export default {
       return new Response(null, { headers: corsHeaders });
     }
 
+    const OTP_TTL_MS = 2 * 60 * 1000; // 2 minutes
+
     // Each routeId gets its own KV key — no race condition
     const saveOTP = async (userId, otp) => {
-      await env.OTP_STORE.put(`otp:${userId}`, JSON.stringify({ otp, timestamp: Date.now() }));
+      await env.OTP_STORE.put(
+        `otp:${userId}`,
+        JSON.stringify({ otp, timestamp: Date.now() }),
+        { expirationTtl: 120 } // Cloudflare auto-delete after 2 minutes
+      );
     };
     const getOTP = async (userId) => {
-      const data = await env.OTP_STORE.get(`otp:${userId}`);
-      return data ? JSON.parse(data) : null;
+      const raw = await env.OTP_STORE.get(`otp:${userId}`);
+      if (!raw) return null;
+      const data = JSON.parse(raw);
+      if (Date.now() - data.timestamp > OTP_TTL_MS) {
+        await env.OTP_STORE.delete(`otp:${userId}`);
+        return null;
+      }
+      return data;
     };
     const deleteOTP = async (userId) => {
       await env.OTP_STORE.delete(`otp:${userId}`);
@@ -50,54 +62,27 @@ export default {
 
     if (path.startsWith('/check-otp/') && request.method === 'GET') {
       const userIdFull = path.split('/check-otp/')[1];
-      let userId = userIdFull;
-      let pair = null;
-      
-      if (userIdFull.includes('_')) {
-        const parts = userIdFull.split('_');
-        userId = parts.slice(0, -1).join('_');
-        pair = parts[parts.length - 1];
-      }
-      
-      let data;
-      if (pair) {
-        data = await env.OTP_STORE.get(`otp:${userId}_${pair}`);
-      } else {
-        data = await env.OTP_STORE.get(`otp:${userIdFull}`);
-      }
-      
+      const data = await getOTP(userIdFull);
       if (data) {
+        const ageMs = Date.now() - data.timestamp;
+        const remainingSec = Math.max(0, Math.round((OTP_TTL_MS - ageMs) / 1000));
         return new Response(JSON.stringify({
           status: 'received',
           otp: data.otp,
+          expires_in_sec: remainingSec,
           note: 'OTP server pe hai - DELETE nahi hua'
         }), { headers: { 'Content-Type': 'application/json', ...corsHeaders } });
       }
       return new Response(JSON.stringify({
         status: 'empty',
         otp: null,
-        note: 'Abhi koi OTP nahi aaya'
+        note: 'Abhi koi OTP nahi aaya ya 2 min mein expire ho gaya'
       }), { status: 404, headers: { 'Content-Type': 'application/json', ...corsHeaders } });
     }
 
     if (path.startsWith('/get-otp/') && request.method === 'GET') {
       const userIdFull = path.split('/get-otp/')[1];
-      let userId = userIdFull;
-      let pair = null;
-      
-      if (userIdFull.includes('_')) {
-        const parts = userIdFull.split('_');
-        userId = parts.slice(0, -1).join('_');
-        pair = parts[parts.length - 1];
-      }
-      
-      let data;
-      if (pair) {
-        data = await env.OTP_STORE.get(`otp:${userId}_${pair}`);
-      } else {
-        data = await env.OTP_STORE.get(`otp:${userIdFull}`);
-      }
-      
+      const data = await getOTP(userIdFull);
       if (data) {
         await deleteOTP(userIdFull);
         return new Response(JSON.stringify({
