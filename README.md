@@ -40,4 +40,4 @@ npx wrangler deploy
 
 ## Worker URL
 
-`https://sms-otp-worker.haquecom-2015.workers.dev`
+`https://faster-otp-server.haquecom-2015.workers.dev`

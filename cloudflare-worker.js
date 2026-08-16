@@ -23,7 +23,8 @@
 // WebSocket on that route, so the browser shows the OTP in ~0ms instead of
 // waiting for the next poll.
 
-const OTP_TTL_MS = 2 * 60 * 1000; // 2 minutes
+const OTP_TTL_MS = 60 * 1000; // 60 seconds for real OTP
+const TEST_OTP_TTL_MS = 5 * 1000; // 5 seconds for test OTP
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -41,8 +42,8 @@ function json(obj, status = 200) {
 const ROUTE_RE = /^\/(check-otp|get-otp|clear-all|check-all|ws)\/(.+)$/;
 
 // Pairs/users used by the Faster Login desktop app — aggregated by /check-all and /clear-all
-const PAIR_IDS = ['P1', 'P2', 'P3', 'P4'];
-const USER_IDS = ['haque_1'];
+const USER_IDS = ['faster_login'];
+const DEFAULT_PAIR = 'main';
 
 // ---------------------------------------------------------------------------
 // Durable Object — one instance per routeId (idFromName), SQLite-backed storage
@@ -93,8 +94,8 @@ export class OtpStore {
         if (!otpClean) {
           return json({ error: 'OTP must be 4-8 digits' }, 400);
         }
-        await this.state.storage.put('otp', JSON.stringify({ otp: otpClean, timestamp: Date.now() }));
-        await this.state.storage.setAlarm(Date.now() + OTP_TTL_MS);
+        await this.state.storage.put('otp', JSON.stringify({ otp: otpClean, timestamp: Date.now(), isTest: true }));
+        await this.state.storage.setAlarm(Date.now() + TEST_OTP_TTL_MS);
         this.pushOtp(otpClean, 'TEST');
         console.log(`[*] TEST-SMS for ${id}: ${otpClean}`);
         return json({ status: 'ok', otp: otpClean });
@@ -138,7 +139,8 @@ export class OtpStore {
       }
 
       const data = JSON.parse(raw);
-      if (Date.now() - data.timestamp > OTP_TTL_MS) {
+      const ttl = data.isTest ? TEST_OTP_TTL_MS : OTP_TTL_MS;
+      if (Date.now() - data.timestamp > ttl) {
         await this.state.storage.delete('otp');
         if (op === 'check-otp') {
           return json({ status: 'empty', otp: null, note: 'Expired' }, 404);
@@ -151,7 +153,7 @@ export class OtpStore {
 
       if (op === 'get-otp') {
         await this.state.storage.delete('otp');
-        return json({ status: 'success', otp: data.otp });
+        return json({ status: 'success', otp: data.otp, isTest: !!data.isTest });
       }
 
       const ageMs = Date.now() - data.timestamp;
@@ -159,6 +161,7 @@ export class OtpStore {
       return json({
         status: 'received',
         otp: data.otp,
+        isTest: !!data.isTest,
         expires_in_sec: remainingSec,
         note: 'OTP server pe hai - DELETE nahi hua',
       });
@@ -248,18 +251,16 @@ export default {
       );
     }
 
-    // DELETE /clear-all — no route in path. Clear every known pair for every user.
+    // DELETE /clear-all — clear the single route for every user.
     if (path === '/clear-all' && request.method === 'DELETE') {
       let deleted = 0;
       for (const user of USER_IDS) {
-        for (const pair of PAIR_IDS) {
-          const stub = env.OTP.get(env.OTP.idFromName(`${user}_${pair}`));
-          try {
-            const r = await stub.fetch(new Request('https://durable-object/clear-all', { method: 'DELETE' }));
-            const d = await r.json();
-            deleted += (d && d.deleted) || 0;
-          } catch (e) {}
-        }
+        const stub = env.OTP.get(env.OTP.idFromName(`${user}_${DEFAULT_PAIR}`));
+        try {
+          const r = await stub.fetch(new Request('https://durable-object/clear-all', { method: 'DELETE' }));
+          const d = await r.json();
+          deleted += (d && d.deleted) || 0;
+        } catch (e) {}
       }
       return json({ status: 'ok', deleted });
     }
@@ -269,21 +270,16 @@ export default {
       const op = m[1];
       const routeId = decodeURIComponent(m[2]);
 
-      // check-all/{user} — peek every pair for a user, single response.
-      // Faster Login dashboard polls this once instead of 4 separate calls.
+      // check-all/{user} — peek the single pair for a user, single response.
       if (op === 'check-all') {
-        const otps = {};
-        await Promise.all(PAIR_IDS.map(async (pair) => {
-          const stub = env.OTP.get(env.OTP.idFromName(`${routeId}_${pair}`));
-          try {
-            const r = await stub.fetch(new Request('https://durable-object/check-all/self'));
-            const d = await r.json();
-            otps[pair] = d && d.otp ? d.otp : null;
-          } catch (e) {
-            otps[pair] = null;
-          }
-        }));
-        return json({ status: 'ok', otps });
+        const stub = env.OTP.get(env.OTP.idFromName(`${routeId}_${DEFAULT_PAIR}`));
+        try {
+          const r = await stub.fetch(new Request('https://durable-object/check-all/self'));
+          const d = await r.json();
+          return json({ status: 'ok', otp: d && d.otp ? d.otp : null, isTest: d && d.isTest ? true : false });
+        } catch (e) {
+          return json({ status: 'ok', otp: null, isTest: false });
+        }
       }
 
       const stub = env.OTP.get(env.OTP.idFromName(routeId));
@@ -293,14 +289,12 @@ export default {
     if (path === '/status' && request.method === 'GET') {
       const stored = [];
       for (const user of USER_IDS) {
-        for (const pair of PAIR_IDS) {
-          const stub = env.OTP.get(env.OTP.idFromName(`${user}_${pair}`));
-          try {
-            const r = await stub.fetch(new Request('https://durable-object/check-all/self'));
-            const d = await r.json();
-            if (d && d.otp) stored.push(`${user}_${pair}`);
-          } catch (e) {}
-        }
+        const stub = env.OTP.get(env.OTP.idFromName(`${user}_${DEFAULT_PAIR}`));
+        try {
+          const r = await stub.fetch(new Request('https://durable-object/check-all/self'));
+          const d = await r.json();
+          if (d && d.otp) stored.push(`${user}_${DEFAULT_PAIR}`);
+        } catch (e) {}
       }
       return json({
         server: 'running',
