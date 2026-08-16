@@ -1,5 +1,5 @@
 {
-  "name": "sms-otp-server",
+  "name": "faster-otp-server",
   "version": "1.0.0",
   "private": true,
   "devDependencies": {
